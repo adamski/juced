@@ -26,6 +26,7 @@
 
    @author  Mike W. Smith
    @tweaker Lucio Asnaghi
+   @modder  Adam Wilson
 
  ==============================================================================
 */
@@ -33,9 +34,7 @@
 #ifndef __JUCETICE_METERCOMPONENT_HEADER__
 #define __JUCETICE_METERCOMPONENT_HEADER__
 
-#include "../../../events/juce_Timer.h"
-#include "../../../gui/components/juce_Component.h"
-
+#include "../../JuceLibraryCode/JuceHeader.h"
 
 //==============================================================================
 /**
@@ -53,7 +52,10 @@ public:
     {
         MeterVertical,
         MeterHorizontal,
-        MeterAnalog
+        MeterAnalog,
+        MeterVerticalBidirectional,
+        MeterHorizontalBidirectional,
+        MeterAnalogBidirectional
     };
 
     //==============================================================================
@@ -88,6 +90,7 @@ public:
     */
     MeterComponent(
         int type,
+        bool bidirectional=false,
         int segments=0,
         int markerWidth=2,
         const Colour& minColour=Colours::green,
@@ -118,11 +121,11 @@ public:
         @param dropDistance             Distance, in pixels, of a needle drop shadow
     */
     MeterComponent(
-        Image* background,
-        Image* overlay,
+        Image background,
+        Image overlay,
         float minPosition,
         float maxPosition,
-        Point& needleCenter,
+        Point<float>& needleCenter,
         int needleLength,
         int needleWidth=2,
         int arrowLength=4,
@@ -200,7 +203,7 @@ public:
 
 protected:
 
-    Image* m_img;
+    Image m_img;
     float m_value;
     float m_skew;
     float m_threshold;
@@ -209,6 +212,7 @@ protected:
     int m_markerWidth;
     int m_inset;
     bool m_raised;
+    bool m_bidirectional; // added to allow for positive & negative metering
     Colour m_minColour;
     Colour m_thresholdColour;
     Colour m_maxColour;
@@ -218,11 +222,11 @@ protected:
     float m_decayToValue;
     int m_hold;
     int m_monostable;
-    Image* m_background;
-    Image* m_overlay;
+    Image m_background;
+    Image m_overlay;
     float m_minPosition;
     float m_maxPosition;
-    Point m_needleCenter;
+    Point<float> m_needleCenter;
     int m_needleLength;
     int m_needleWidth;
     int m_arrowLength;
@@ -233,6 +237,9 @@ protected:
 
     //==============================================================================
     void buildImage(void);
+    
+private:
+    Logger *logger;
 };
 
 

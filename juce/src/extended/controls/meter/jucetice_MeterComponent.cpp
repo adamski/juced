@@ -26,21 +26,25 @@
 
    @author  Mike W. Smith
    @tweaker Lucio Asnaghi
+   @modder  Adam Wilson 
 
  ==============================================================================
 */
 
-#include "../../../core/juce_StandardHeader.h"
 
-BEGIN_JUCE_NAMESPACE
+
+//#include "../../JuceLibraryCode/modules/juce_core/system/juce_StandardHeader.h"
+
+//BEGIN_JUCE_NAMESPACE
 
 #include "jucetice_MeterComponent.h"
-#include "../../../gui/graphics/imaging/juce_Image.h"
+//#include "../../JuceLibraryCode/modules/juce_graphics/images/juce_Image.h"
 
 
 //==============================================================================
 MeterComponent::MeterComponent(
                                int type,
+                               bool bidirectional,
                                int segs,
                                int markerWidth,
                                const Colour& min,
@@ -48,12 +52,13 @@ MeterComponent::MeterComponent(
                                const Colour& max,
                                const Colour& back,
                                float threshold) :
-    Component(T("Meter Component")),
+    //Component(T("Meter Component")),
     m_img(0),
     m_value(0),
     m_skew(1.0f),
     m_threshold(threshold),
     m_meterType(type),
+    m_bidirectional(bidirectional),
     m_segments(segs),
     m_markerWidth(markerWidth),
     m_inset(0),
@@ -69,8 +74,8 @@ MeterComponent::MeterComponent(
     m_monostable(0),
     m_background(0),
     m_overlay(0),
-    m_minPosition(0.1f),
-    m_maxPosition(0.9f),
+    m_minPosition(bidirectional ? -1.0f : 0.1f),
+    m_maxPosition(bidirectional ? 1.0f : 0.9f),
     m_needleLength(0),
     m_needleWidth(markerWidth)
 {
@@ -79,15 +84,16 @@ MeterComponent::MeterComponent(
             // Minimum analog meter wiper width
             m_segments = 8;
     startTimer(m_decayTime);
+    logger = Logger::getCurrentLogger();
 }
 
 //==============================================================================
 MeterComponent::MeterComponent(
-                               Image* background,
-                               Image* overlay,
+                               Image background,
+                               Image overlay,
                                float minPosition,
                                float maxPosition,
-                               Point& needleCenter,
+                               Point<float>& needleCenter,
                                int needleLength,
                                int needleWidth,
                                int arrowLength,
@@ -95,7 +101,7 @@ MeterComponent::MeterComponent(
                                const Colour& needleColour,
                                int needleDropShadow,
                                int dropDistance) :
-    Component(T("Meter Component")),
+    //Component(T("Meter Component")),
     m_img(0),
     m_value(0),
     m_skew(1.0f),
@@ -131,30 +137,34 @@ MeterComponent::MeterComponent(
     m_needleColour = needleColour;
 
     startTimer(m_decayTime);
+    logger = Logger::getCurrentLogger();
 }
 
 //==============================================================================
 MeterComponent::~MeterComponent()
 {
     stopTimer();
-    deleteAndZero(m_img);
-    deleteAndZero(m_background);
-    deleteAndZero(m_overlay);
+    
+    // these only needed if they are pointers...
+    //deleteAndZero(m_img);
+    //deleteAndZero(m_background);
+    //deleteAndZero(m_overlay);
 }
 
 //==============================================================================
 void MeterComponent::buildImage(void)
 {
-    deleteAndZero(m_img);
+    //deleteAndZero(m_img);
 
     // Build our image in memory
     int w = getWidth() - m_inset*2;
     int h = getHeight() - m_inset*2;
 
-    if(m_meterType == MeterHorizontal)
+
+    if (m_meterType == MeterHorizontal)
     {
-        m_img = Image::createNativeImage(Image::RGB, w, h, false);
-        Graphics g(*m_img);
+        m_img = Image(Image::RGB, w, h, false);
+        Graphics g(m_img);
 
         g.setGradientFill (ColourGradient(m_minColour, 0, 0, m_thresholdColour, w * m_threshold, 0, false));
         g.fillRect(0, 0, int(w * m_threshold), h);
@@ -174,8 +184,8 @@ void MeterComponent::buildImage(void)
     }
     else if(m_meterType == MeterVertical)
     {
-        m_img = new Image(Image::RGB, w, h, false);
-        Graphics g(*m_img);
+        m_img = Image(Image::RGB, w, h, false);
+        Graphics g(m_img);
 
         int hSize = (int)(h * m_threshold);
         g.setGradientFill (ColourGradient(m_minColour, 0, h, m_thresholdColour, 0, h - hSize, false));
@@ -195,10 +205,10 @@ void MeterComponent::buildImage(void)
         }
     }
     // Only build if no other analog images exist
-    else if(m_meterType == MeterAnalog && !(m_background || m_overlay || m_needleLength))
+    else if(m_meterType == MeterAnalog && (m_background.isNull() || m_overlay.isNull() || !m_needleLength))
     {
-        m_img = Image::createNativeImage(Image::RGB, w, h, false);
-        Graphics g(*m_img);
+        m_img = Image(Image::RGB, w, h, false);
+        Graphics g(m_img);
 
         g.setColour(m_backgroundColour);
         g.fillRect(0, 0, w, h);
@@ -274,13 +284,20 @@ void MeterComponent::setColours(Colour& min, Colour& threshold, Colour& max, Col
 //==============================================================================
 void MeterComponent::setValue(float v)
 {
-    float val = jmin(jmax(v, 0.0f), 1.0f);
-    if (m_skew != 1.0 && val > 0.0)
+    // this needs to be adjusted in case of bidirectional values
+    
+    
+    float val = (m_bidirectional ? jmin(jmax(v, -1.0f), 1.0f) : jmin(jmax(v, -1.0f), 1.0f));
+    
+    
+    if (m_skew != 1.0 && val != 0.0)
         val = exp (log (val) / m_skew);
 
+    logger->writeToLog ("setValue:val="+String(val));
+    
     if(m_decayTime)
     {
-        if(m_value < val)
+        if(m_value != val)
         {
             // Sample and hold
             m_monostable=m_hold;
@@ -319,9 +336,12 @@ void MeterComponent::timerCallback()
         // Wait for our hold period
         m_monostable--;
     else
-    {
-        m_value = m_decayToValue + (m_decayPercent * (m_value - m_decayToValue));
-        if(m_value - m_decayToValue > 0.01f)
+    {   // may need to change this for bidirectional..
+        //int polarity = (m_value < 0 ? -1 : 1);
+        bool positive = (m_value >= 0);
+        m_value = (positive ? (m_decayToValue + (m_decayPercent * (m_value - m_decayToValue)))
+                            : (m_decayToValue - (m_decayPercent * (m_value + m_decayToValue))));
+        if(std::abs(m_value - m_decayToValue) > 0.01f)
             // Only repaint if there's enough changes
             repaint();
         else if(m_value != m_decayToValue)
@@ -345,7 +365,7 @@ void MeterComponent::paint (Graphics& g)
     int w = getWidth() - m_inset*2;
 
     // Background
-    if(!m_background && !m_needleLength)
+    if(m_background.isNull() && !m_needleLength)
     {
         g.setColour(m_backgroundColour);
         g.fillRect(m_inset, m_inset, w, h);
@@ -353,7 +373,8 @@ void MeterComponent::paint (Graphics& g)
 
     // Bevel outline for the entire draw area
     if(m_inset)
-        g.drawBevel(
+        LookAndFeel_V2::drawBevel(
+            g,
             0,
             0,
             getWidth(),
@@ -364,6 +385,9 @@ void MeterComponent::paint (Graphics& g)
 
     // Blit our prebuilt image
     g.setOpacity(1.0f);
+    
+    logger->writeToLog("m_value:"+String(m_value));
+    
     if(m_meterType == MeterHorizontal)
     {
         if(m_segments)
@@ -381,24 +405,30 @@ void MeterComponent::paint (Graphics& g)
             hSize = (int) (h * float(int(m_value * m_segments)) / m_segments);
         else
             hSize = (int) (h * m_value);
-        g.drawImage(m_img, m_inset, m_inset + h - hSize, w, hSize, 0, h - hSize, m_img->getWidth(), hSize);
+        g.drawImage(m_img, m_inset, m_inset + h - hSize, w, hSize, 0, h - hSize, m_img.getWidth(), hSize);
     }
     else if(m_meterType == MeterAnalog)
     {
-        if(m_background)
-            g.drawImage(m_background, m_inset, m_inset, w, h, 0, 0, m_background->getWidth(), m_background->getHeight());
-        else if(m_img)
-            g.drawImage(m_img, m_inset, m_inset, w, h, 0, 0, m_img->getWidth(), m_img->getHeight());
+        if (m_background.isValid())
+            g.drawImage(m_background, m_inset, m_inset, w, h, 0, 0, m_background.getWidth(), m_background.getHeight());
+        else if (m_img.isValid())
+            g.drawImage(m_img, m_inset, m_inset, w, h, 0, 0, m_img.getWidth(), m_img.getHeight());
 
-        float angle = 4.71238898 + (m_value * (m_maxPosition - m_minPosition) + m_minPosition) * -3.14159265;
+        float angle;
+        if (m_bidirectional)
+            angle = (m_value * 3.14159265) + 180;
+        else
+            angle = 4.71238898 + (m_value * (m_maxPosition - m_minPosition) + m_minPosition) * -3.14159265;
         if(m_needleLength)
         {
             g.setColour(m_needleColour);
             g.drawArrow(
-                m_needleCenter.getX() + m_inset,
-                m_needleCenter.getY() + m_inset,
-                sin(angle)*m_needleLength + m_needleCenter.getX() + m_inset,
-                cos(angle)*m_needleLength + m_needleCenter.getY() + m_inset,
+                Line<float>(
+                    m_needleCenter.getX() + m_inset,
+                    m_needleCenter.getY() + m_inset,
+                    sin(angle)*m_needleLength + m_needleCenter.getX() + m_inset,
+                    cos(angle)*m_needleLength + m_needleCenter.getY() + m_inset
+                ),
                 m_needleWidth,
                 m_arrowLength,
                 m_arrowWidth);
@@ -437,10 +467,12 @@ void MeterComponent::paint (Graphics& g)
                 }
                 g.setColour(Colours::black.withAlpha(0.2f));
                 g.drawArrow(
-                    m_needleCenter.getX() + m_inset + dropX,
-                    m_needleCenter.getY() + m_inset + dropY,
-                    sin(angle)*m_needleLength + m_needleCenter.getX() + m_inset + dropPointX,
-                    cos(angle)*m_needleLength + m_needleCenter.getY() + m_inset + dropPointY,
+                    Line<float> (
+                        m_needleCenter.getX() + m_inset + dropX,
+                        m_needleCenter.getY() + m_inset + dropY,
+                        sin(angle)*m_needleLength + m_needleCenter.getX() + m_inset + dropPointX,
+                        cos(angle)*m_needleLength + m_needleCenter.getY() + m_inset + dropPointY
+                    ),
                     m_needleWidth,
                     m_arrowLength,
                     m_arrowWidth);
@@ -451,22 +483,24 @@ void MeterComponent::paint (Graphics& g)
             // Contrasting arrow for built-in analog meter
             g.setColour(m_backgroundColour.contrasting(1.0f).withAlpha(0.9f));
             g.drawArrow(
-                w/2 + m_inset,
-                h - m_segments + m_inset,
-                sin(angle)*jmax (w/2, h/2) + w/2 + m_inset,
-                cos(angle)*jmax (w/2, h/2) + h - m_segments + m_inset,
+                Line<float>(
+                    w/2 + m_inset,
+                    h - m_segments + m_inset,
+                    sin(angle)*jmax (w/2, h/2) + w/2 + m_inset,
+                    cos(angle)*jmax (w/2, h/2) + h - m_segments + m_inset
+                ),
                 m_needleWidth,
                 m_needleWidth*2,
                 m_needleWidth*2);
         }
 
-        if(m_overlay)
+        if(m_overlay.isValid())
         {
             g.setOpacity(1.0f);
-            g.drawImage(m_overlay, m_inset, m_inset, w, h, 0, 0, m_overlay->getWidth(), m_overlay->getHeight());
+            g.drawImage(m_overlay, m_inset, m_inset, w, h, 0, 0, m_overlay.getWidth(), m_overlay.getHeight());
         }
     }
 }
 
-END_JUCE_NAMESPACE
+//END_JUCE_NAMESPACE
 
